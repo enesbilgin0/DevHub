@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from ..db import dispose_engine
-from .routers import auth
+from .routers import answers, auth, questions, tags
 
 
 @asynccontextmanager
@@ -23,6 +23,9 @@ app = FastAPI(
 )
 
 app.include_router(auth.router)
+app.include_router(tags.router)
+app.include_router(questions.router)
+app.include_router(answers.router)
 
 
 @app.get("/health", tags=["meta"])
