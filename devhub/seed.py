@@ -91,7 +91,7 @@ async def _truncate_all(session: AsyncSession) -> None:
 async def _insert_users(session: AsyncSession, fake: Faker, count: int) -> list[int]:
     # Tek hash herkese yetiyor (her kullanıcı için ayrı bcrypt çağrısı yavaş olur).
     shared_hash = hash_password(SEED_PASSWORD)
-    rows = []
+    rows: list[dict] = []
     seen_usernames: set[str] = set()
     seen_emails: set[str] = set()
     while len(rows) < count:

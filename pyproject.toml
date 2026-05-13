@@ -1,0 +1,22 @@
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.13"
+typeCheckingMode = "basic"
+reportMissingImports = "error"
+reportMissingTypeStubs = false
+exclude = [".venv", "**/__pycache__", "exports", "migrations/versions"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+exclude = [".venv", "migrations/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]  # line-length zaten 100; uzun SQL string'lere takılmasın
+
+[tool.mypy]
+python_version = "3.13"
+ignore_missing_imports = true
+exclude = ["\\.venv", "migrations/versions"]

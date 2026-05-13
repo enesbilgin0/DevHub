@@ -102,6 +102,6 @@ async def create_tag(
         await session.flush()
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(status_code=409, detail="Tag already exists")
+        raise HTTPException(status_code=409, detail="Tag already exists") from None
     await invalidate([TAGLIST_PATTERN])
     return TagOut(id=tag.id, name=tag.name, description=tag.description, question_count=0)

@@ -163,7 +163,7 @@ async def _delete(qid: int) -> int:
         result = await session.execute(
             text("DELETE FROM questions WHERE id = :id"), {"id": qid}
         )
-        return result.rowcount
+        return result.rowcount  # type: ignore[attr-defined]
 
 
 def cmd_delete(args: argparse.Namespace) -> int:

@@ -95,7 +95,7 @@ async def _delete(name: str) -> int:
         result = await session.execute(
             text("DELETE FROM tags WHERE name = :name"), {"name": name}
         )
-        return result.rowcount
+        return result.rowcount  # type: ignore[attr-defined]
 
 
 def cmd_delete(args: argparse.Namespace) -> int:

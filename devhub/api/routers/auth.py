@@ -1,7 +1,7 @@
 """Auth router — kayıt, giriş, refresh, logout, me."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated
 
 import jwt
@@ -59,7 +59,7 @@ async def register(payload: RegisterIn, session: SessionDep) -> TokenPair:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username or email already exists",
-        )
+        ) from None
     return await _issue_token_pair(session, user)
 
 
@@ -111,7 +111,7 @@ async def refresh(payload: RefreshIn, session: SessionDep) -> TokenPair:
     try:
         claims = decode_token(payload.refresh_token, expected_type="refresh")
     except jwt.PyJWTError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
     jti = claims["jti"]
     user_id = int(claims["sub"])
@@ -119,7 +119,7 @@ async def refresh(payload: RefreshIn, session: SessionDep) -> TokenPair:
     stored = (
         await session.execute(select(RefreshToken).where(RefreshToken.jti == jti))
     ).scalar_one_or_none()
-    if stored is None or stored.revoked or stored.expires_at < datetime.now(tz=timezone.utc):
+    if stored is None or stored.revoked or stored.expires_at < datetime.now(tz=UTC):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token revoked or expired",

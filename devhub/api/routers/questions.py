@@ -15,7 +15,6 @@ from ...models import (
 )
 from ..cache import cache_get, cache_set, invalidate
 from ..deps import CurrentUser, SessionDep
-from ..ws import manager as ws_manager
 from ..schemas import (
     Page,
     QuestionCreate,
@@ -26,6 +25,7 @@ from ..schemas import (
     VoteIn,
     VoteOut,
 )
+from ..ws import manager as ws_manager
 
 router = APIRouter(prefix="/questions", tags=["questions"])
 
