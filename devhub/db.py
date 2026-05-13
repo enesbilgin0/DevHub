@@ -1,28 +1,58 @@
-"""SQLite bağlantı ve schema bootstrap yardımcıları."""
+"""Async SQLAlchemy engine ve session yardımcıları."""
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "devhub.db"
-SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
+from .config import get_settings
 
-def connect(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
-
-
-def init_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-    conn.commit()
+_engine: AsyncEngine | None = None
+_sessionmaker: async_sessionmaker[AsyncSession] | None = None
 
 
-def reset(db_path: Path | str = DEFAULT_DB_PATH) -> None:
-    p = Path(db_path)
-    if p.exists():
-        p.unlink()
-    with connect(p) as conn:
-        init_schema(conn)
+def get_engine() -> AsyncEngine:
+    global _engine
+    if _engine is None:
+        _engine = create_async_engine(
+            get_settings().database_url,
+            echo=False,
+            pool_pre_ping=True,
+        )
+    return _engine
+
+
+def get_sessionmaker() -> async_sessionmaker[AsyncSession]:
+    global _sessionmaker
+    if _sessionmaker is None:
+        _sessionmaker = async_sessionmaker(
+            get_engine(), expire_on_commit=False, class_=AsyncSession
+        )
+    return _sessionmaker
+
+
+@asynccontextmanager
+async def session_scope() -> AsyncIterator[AsyncSession]:
+    """Tek bir transaction kapsamı: commit / rollback otomatik."""
+    sm = get_sessionmaker()
+    async with sm() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def dispose_engine() -> None:
+    global _engine, _sessionmaker
+    if _engine is not None:
+        await _engine.dispose()
+        _engine = None
+        _sessionmaker = None

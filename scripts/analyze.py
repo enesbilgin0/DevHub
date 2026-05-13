@@ -8,7 +8,9 @@ Kullanım örnekleri:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import csv
+import inspect
 import sys
 from pathlib import Path
 
@@ -19,7 +21,7 @@ from rich.console import Console  # noqa: E402
 from rich.table import Table  # noqa: E402
 
 from devhub import analytics  # noqa: E402
-from devhub.db import connect  # noqa: E402
+from devhub.db import dispose_engine, session_scope  # noqa: E402
 
 console = Console()
 
@@ -47,6 +49,29 @@ def _write_csv(out_dir: Path, name: str, headers: list[str], rows: list[tuple]) 
     return path
 
 
+def _accepts_limit(fn) -> bool:
+    return "limit" in inspect.signature(fn).parameters
+
+
+async def _run(args: argparse.Namespace) -> None:
+    selected = (
+        {args.report: analytics.REPORTS[args.report]}
+        if args.report
+        else analytics.REPORTS
+    )
+    async with session_scope() as session:
+        for name, (title, fn) in selected.items():
+            if _accepts_limit(fn):
+                headers, rows = await fn(session, args.limit)
+            else:
+                headers, rows = await fn(session)
+            if args.csv:
+                path = _write_csv(args.csv, name, headers, rows)
+                console.print(f"[green]✓[/green] {title} → {path}")
+            else:
+                _print(title, headers, rows)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="DevHub veri analizi")
     parser.add_argument(
@@ -62,30 +87,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=10, help="Liste raporları için varsayılan limit")
     args = parser.parse_args(argv)
 
-    selected = (
-        {args.report: analytics.REPORTS[args.report]}
-        if args.report
-        else analytics.REPORTS
-    )
+    async def _runner():
+        try:
+            await _run(args)
+        finally:
+            await dispose_engine()
 
-    with connect() as conn:
-        for name, (title, fn) in selected.items():
-            try:
-                headers, rows = fn(conn, args.limit) if _accepts_limit(fn) else fn(conn)
-            except TypeError:
-                headers, rows = fn(conn)
-            if args.csv:
-                path = _write_csv(args.csv, name, headers, rows)
-                console.print(f"[green]✓[/green] {title} → {path}")
-            else:
-                _print(title, headers, rows)
+    asyncio.run(_runner())
     return 0
-
-
-def _accepts_limit(fn) -> bool:
-    import inspect
-    params = inspect.signature(fn).parameters
-    return "limit" in params
 
 
 if __name__ == "__main__":

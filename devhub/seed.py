@@ -1,6 +1,6 @@
-"""Faker tabanlı sahte veri üretici.
+"""Faker tabanlı sahte veri üretici (PostgreSQL + SQLAlchemy async).
 
-Tek transaction içinde batch insert kullanarak hızlı şekilde:
+Tek transaction içinde batch insert ile:
 - 100 kullanıcı
 - ~30 etiket
 - 500 soru (1-4 etiketli)
@@ -10,12 +10,24 @@ Tek transaction içinde batch insert kullanarak hızlı şekilde:
 """
 from __future__ import annotations
 
+import asyncio
 import random
-import sqlite3
 
 from faker import Faker
+from sqlalchemy import delete, insert, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from .db import connect, init_schema, reset
+from .db import session_scope
+from .models import (
+    Answer,
+    Question,
+    QuestionTag,
+    Tag,
+    TagFollow,
+    User,
+    UserFollow,
+    Vote,
+)
 
 DEFAULT_USERS = 100
 DEFAULT_QUESTIONS = 500
@@ -55,7 +67,22 @@ PREDEFINED_TAGS: list[tuple[str, str]] = [
 ]
 
 
-def _insert_users(conn: sqlite3.Connection, fake: Faker, count: int) -> list[int]:
+async def _truncate_all(session: AsyncSession) -> None:
+    """FK kısıtlarına dokunmadan tüm tabloları boşalt (silme sırası önemli)."""
+    for model in (
+        Vote,
+        TagFollow,
+        UserFollow,
+        QuestionTag,
+        Answer,
+        Question,
+        Tag,
+        User,
+    ):
+        await session.execute(delete(model))
+
+
+async def _insert_users(session: AsyncSession, fake: Faker, count: int) -> list[int]:
     rows = []
     seen_usernames: set[str] = set()
     seen_emails: set[str] = set()
@@ -66,163 +93,166 @@ def _insert_users(conn: sqlite3.Connection, fake: Faker, count: int) -> list[int
             continue
         seen_usernames.add(username)
         seen_emails.add(email)
-        rows.append((
-            username,
-            email,
-            fake.sentence(nb_words=8),
-            fake.date_time_between(start_date="-3y", end_date="now").isoformat(sep=" "),
-            random.randint(0, 5000),
-        ))
-    conn.executemany(
-        "INSERT INTO users (username, email, bio, joined_at, reputation) VALUES (?, ?, ?, ?, ?)",
-        rows,
-    )
-    return [r[0] for r in conn.execute("SELECT id FROM users ORDER BY id").fetchall()]
+        rows.append({
+            "username": username,
+            "email": email,
+            "bio": fake.sentence(nb_words=8),
+            "joined_at": fake.date_time_between(start_date="-3y", end_date="now"),
+            "reputation": random.randint(0, 5000),
+        })
+    await session.execute(insert(User), rows)
+    result = await session.execute(select(User.id).order_by(User.id))
+    return list(result.scalars().all())
 
 
-def _insert_tags(conn: sqlite3.Connection) -> list[int]:
-    conn.executemany(
-        "INSERT INTO tags (name, description) VALUES (?, ?)",
-        PREDEFINED_TAGS,
-    )
-    return [r[0] for r in conn.execute("SELECT id FROM tags ORDER BY id").fetchall()]
+async def _insert_tags(session: AsyncSession) -> list[int]:
+    rows = [{"name": n, "description": d} for n, d in PREDEFINED_TAGS]
+    await session.execute(insert(Tag), rows)
+    result = await session.execute(select(Tag.id).order_by(Tag.id))
+    return list(result.scalars().all())
 
 
-def _insert_questions(
-    conn: sqlite3.Connection, fake: Faker, user_ids: list[int], tag_ids: list[int], count: int
+async def _insert_questions(
+    session: AsyncSession,
+    fake: Faker,
+    user_ids: list[int],
+    tag_ids: list[int],
+    count: int,
 ) -> list[int]:
     q_rows = []
     for _ in range(count):
-        q_rows.append((
-            random.choice(user_ids),
-            fake.sentence(nb_words=random.randint(6, 12)).rstrip("."),
-            "\n\n".join(fake.paragraphs(nb=random.randint(2, 4))),
-            fake.date_time_between(start_date="-2y", end_date="now").isoformat(sep=" "),
-            random.randint(0, 5000),
-        ))
-    conn.executemany(
-        "INSERT INTO questions (user_id, title, body, created_at, view_count) VALUES (?, ?, ?, ?, ?)",
-        q_rows,
-    )
-    question_ids = [r[0] for r in conn.execute("SELECT id FROM questions ORDER BY id").fetchall()]
+        q_rows.append({
+            "user_id": random.choice(user_ids),
+            "title": fake.sentence(nb_words=random.randint(6, 12)).rstrip("."),
+            "body": "\n\n".join(fake.paragraphs(nb=random.randint(2, 4))),
+            "created_at": fake.date_time_between(start_date="-2y", end_date="now"),
+            "view_count": random.randint(0, 5000),
+        })
+    await session.execute(insert(Question), q_rows)
+    result = await session.execute(select(Question.id).order_by(Question.id))
+    question_ids = list(result.scalars().all())
 
-    qt_rows: list[tuple[int, int]] = []
+    qt_pairs: set[tuple[int, int]] = set()
     for qid in question_ids:
         for tid in random.sample(tag_ids, k=random.randint(1, 4)):
-            qt_rows.append((qid, tid))
-    conn.executemany(
-        "INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)",
-        qt_rows,
-    )
+            qt_pairs.add((qid, tid))
+    qt_rows = [{"question_id": q, "tag_id": t} for q, t in qt_pairs]
+    await session.execute(insert(QuestionTag), qt_rows)
     return question_ids
 
 
-def _insert_answers(
-    conn: sqlite3.Connection, fake: Faker, user_ids: list[int], question_ids: list[int], count: int
+async def _insert_answers(
+    session: AsyncSession,
+    fake: Faker,
+    user_ids: list[int],
+    question_ids: list[int],
+    count: int,
 ) -> list[int]:
     rows = []
     accepted_per_question: dict[int, bool] = {}
     for _ in range(count):
         qid = random.choice(question_ids)
-        is_accepted = 0
+        is_accepted = False
         if not accepted_per_question.get(qid) and random.random() < 0.35:
-            is_accepted = 1
+            is_accepted = True
             accepted_per_question[qid] = True
-        rows.append((
-            qid,
-            random.choice(user_ids),
-            "\n\n".join(fake.paragraphs(nb=random.randint(1, 3))),
-            fake.date_time_between(start_date="-2y", end_date="now").isoformat(sep=" "),
-            is_accepted,
-        ))
-    conn.executemany(
-        "INSERT INTO answers (question_id, user_id, body, created_at, is_accepted) VALUES (?, ?, ?, ?, ?)",
-        rows,
-    )
-    return [r[0] for r in conn.execute("SELECT id FROM answers ORDER BY id").fetchall()]
+        rows.append({
+            "question_id": qid,
+            "user_id": random.choice(user_ids),
+            "body": "\n\n".join(fake.paragraphs(nb=random.randint(1, 3))),
+            "created_at": fake.date_time_between(start_date="-2y", end_date="now"),
+            "is_accepted": is_accepted,
+        })
+    await session.execute(insert(Answer), rows)
+    result = await session.execute(select(Answer.id).order_by(Answer.id))
+    return list(result.scalars().all())
 
 
-def _insert_votes(
-    conn: sqlite3.Connection,
+async def _insert_votes(
+    session: AsyncSession,
     user_ids: list[int],
     question_ids: list[int],
     answer_ids: list[int],
 ) -> int:
-    rows: set[tuple[int, str, int, int]] = set()
+    seen: set[tuple[int, str, int]] = set()
+    rows: list[dict] = []
     for qid in question_ids:
         voters = random.sample(user_ids, k=random.randint(0, min(20, len(user_ids))))
         for uid in voters:
-            value = 1 if random.random() < 0.85 else -1
-            rows.add((uid, "question", qid, value))
+            key = (uid, "question", qid)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({
+                "user_id": uid,
+                "target_type": "question",
+                "target_id": qid,
+                "value": 1 if random.random() < 0.85 else -1,
+            })
     for aid in answer_ids:
         voters = random.sample(user_ids, k=random.randint(0, min(15, len(user_ids))))
         for uid in voters:
-            value = 1 if random.random() < 0.8 else -1
-            rows.add((uid, "answer", aid, value))
-    conn.executemany(
-        "INSERT OR IGNORE INTO votes (user_id, target_type, target_id, value) VALUES (?, ?, ?, ?)",
-        list(rows),
-    )
+            key = (uid, "answer", aid)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({
+                "user_id": uid,
+                "target_type": "answer",
+                "target_id": aid,
+                "value": 1 if random.random() < 0.8 else -1,
+            })
+    if rows:
+        await session.execute(insert(Vote), rows)
     return len(rows)
 
 
-def _insert_follows(
-    conn: sqlite3.Connection, user_ids: list[int], tag_ids: list[int]
+async def _insert_follows(
+    session: AsyncSession, user_ids: list[int], tag_ids: list[int]
 ) -> tuple[int, int]:
     user_pairs: set[tuple[int, int]] = set()
     for uid in user_ids:
         k = random.randint(0, 10)
         for target in random.sample([x for x in user_ids if x != uid], k=min(k, len(user_ids) - 1)):
             user_pairs.add((uid, target))
-    conn.executemany(
-        "INSERT OR IGNORE INTO user_follows (follower_id, followed_id) VALUES (?, ?)",
-        list(user_pairs),
-    )
+    if user_pairs:
+        await session.execute(
+            insert(UserFollow),
+            [{"follower_id": a, "followed_id": b} for a, b in user_pairs],
+        )
 
     tag_pairs: set[tuple[int, int]] = set()
     for uid in user_ids:
         for tid in random.sample(tag_ids, k=random.randint(0, min(6, len(tag_ids)))):
             tag_pairs.add((uid, tid))
-    conn.executemany(
-        "INSERT OR IGNORE INTO tag_follows (user_id, tag_id) VALUES (?, ?)",
-        list(tag_pairs),
-    )
+    if tag_pairs:
+        await session.execute(
+            insert(TagFollow),
+            [{"user_id": u, "tag_id": t} for u, t in tag_pairs],
+        )
     return len(user_pairs), len(tag_pairs)
 
 
-def run(
+async def run_async(
     *,
     users: int = DEFAULT_USERS,
     questions: int = DEFAULT_QUESTIONS,
     answers: int = DEFAULT_ANSWERS,
     seed: int | None = 42,
-    db_path=None,
 ) -> dict[str, int]:
-    """Veritabanını sıfırlayıp sahte veri üretir. İstatistikleri döner."""
     if seed is not None:
         random.seed(seed)
         Faker.seed(seed)
     fake = Faker()
 
-    if db_path is None:
-        from .db import DEFAULT_DB_PATH
-        db_path = DEFAULT_DB_PATH
-    reset(db_path)
-
-    with connect(db_path) as conn:
-        init_schema(conn)
-        conn.execute("BEGIN")
-        try:
-            user_ids = _insert_users(conn, fake, users)
-            tag_ids = _insert_tags(conn)
-            question_ids = _insert_questions(conn, fake, user_ids, tag_ids, questions)
-            answer_ids = _insert_answers(conn, fake, user_ids, question_ids, answers)
-            vote_count = _insert_votes(conn, user_ids, question_ids, answer_ids)
-            user_follow_count, tag_follow_count = _insert_follows(conn, user_ids, tag_ids)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+    async with session_scope() as session:
+        await _truncate_all(session)
+        user_ids = await _insert_users(session, fake, users)
+        tag_ids = await _insert_tags(session)
+        question_ids = await _insert_questions(session, fake, user_ids, tag_ids, questions)
+        answer_ids = await _insert_answers(session, fake, user_ids, question_ids, answers)
+        vote_count = await _insert_votes(session, user_ids, question_ids, answer_ids)
+        user_follow_count, tag_follow_count = await _insert_follows(session, user_ids, tag_ids)
 
     return {
         "users": len(user_ids),
@@ -233,3 +263,16 @@ def run(
         "user_follows": user_follow_count,
         "tag_follows": tag_follow_count,
     }
+
+
+def run(
+    *,
+    users: int = DEFAULT_USERS,
+    questions: int = DEFAULT_QUESTIONS,
+    answers: int = DEFAULT_ANSWERS,
+    seed: int | None = 42,
+) -> dict[str, int]:
+    """Senkron entry point — CLI'den çağrılır."""
+    return asyncio.run(
+        run_async(users=users, questions=questions, answers=answers, seed=seed)
+    )

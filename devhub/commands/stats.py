@@ -5,10 +5,29 @@ import argparse
 
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy import text
 
-from ..db import connect
+from ..db import session_scope
+from . import run_async
 
 console = Console()
+
+
+async def _fetch_counts() -> dict[str, int]:
+    sql = text("""
+        SELECT
+          (SELECT COUNT(*) FROM users)         AS users,
+          (SELECT COUNT(*) FROM questions)     AS questions,
+          (SELECT COUNT(*) FROM answers)       AS answers,
+          (SELECT COUNT(*) FROM tags)          AS tags,
+          (SELECT COUNT(*) FROM votes)         AS votes,
+          (SELECT COUNT(*) FROM user_follows)  AS user_follows,
+          (SELECT COUNT(*) FROM tag_follows)   AS tag_follows,
+          (SELECT COUNT(*) FROM answers WHERE is_accepted) AS accepted
+    """)
+    async with session_scope() as session:
+        row = (await session.execute(sql)).mappings().first()
+    return dict(row)
 
 
 def add_parser(subparsers: argparse._SubParsersAction) -> None:
@@ -17,24 +36,21 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
 
 
 def cmd_stats(args: argparse.Namespace) -> int:
-    with connect() as conn:
-        counts = {
-            "Kullanıcılar":  conn.execute("SELECT COUNT(*) FROM users").fetchone()[0],
-            "Sorular":       conn.execute("SELECT COUNT(*) FROM questions").fetchone()[0],
-            "Cevaplar":      conn.execute("SELECT COUNT(*) FROM answers").fetchone()[0],
-            "Etiketler":     conn.execute("SELECT COUNT(*) FROM tags").fetchone()[0],
-            "Oylar":         conn.execute("SELECT COUNT(*) FROM votes").fetchone()[0],
-            "Kullanıcı takipleri": conn.execute("SELECT COUNT(*) FROM user_follows").fetchone()[0],
-            "Etiket takipleri":    conn.execute("SELECT COUNT(*) FROM tag_follows").fetchone()[0],
-            "Kabul edilmiş cevap": conn.execute(
-                "SELECT COUNT(*) FROM answers WHERE is_accepted = 1"
-            ).fetchone()[0],
-        }
-
+    counts = run_async(_fetch_counts())
+    labels = [
+        ("Kullanıcılar", "users"),
+        ("Sorular", "questions"),
+        ("Cevaplar", "answers"),
+        ("Etiketler", "tags"),
+        ("Oylar", "votes"),
+        ("Kullanıcı takipleri", "user_follows"),
+        ("Etiket takipleri", "tag_follows"),
+        ("Kabul edilmiş cevap", "accepted"),
+    ]
     table = Table(title="DevHub — Genel İstatistikler", header_style="bold cyan")
     table.add_column("Metrik", style="bold")
     table.add_column("Değer", justify="right", style="yellow")
-    for k, v in counts.items():
-        table.add_row(k, f"{v:,}")
+    for label, key in labels:
+        table.add_row(label, f"{counts[key]:,}")
     console.print(table)
     return 0

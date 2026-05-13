@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
-from ..db import connect
+from ..db import session_scope
+from . import run_async
 
 console = Console()
 
@@ -31,22 +33,27 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p_del.set_defaults(func=cmd_delete)
 
 
+async def _fetch_list(sort_sql: str, limit: int):
+    sql = text(f"""
+        SELECT t.id, t.name, t.description,
+               (SELECT COUNT(*) FROM question_tags qt WHERE qt.tag_id = t.id) AS question_count,
+               (SELECT COUNT(*) FROM tag_follows  tf WHERE tf.tag_id = t.id) AS follower_count
+        FROM tags t
+        ORDER BY {sort_sql}
+        LIMIT :limit
+    """)
+    async with session_scope() as session:
+        result = await session.execute(sql, {"limit": limit})
+        return result.mappings().all()
+
+
 def cmd_list(args: argparse.Namespace) -> int:
     sort_sql = {
         "name": "t.name ASC",
         "questions": "question_count DESC",
         "followers": "follower_count DESC",
     }[args.sort]
-    sql = f"""
-        SELECT t.id, t.name, t.description,
-               (SELECT COUNT(*) FROM question_tags qt WHERE qt.tag_id = t.id) AS question_count,
-               (SELECT COUNT(*) FROM tag_follows  tf WHERE tf.tag_id = t.id) AS follower_count
-        FROM tags t
-        ORDER BY {sort_sql}
-        LIMIT ?
-    """
-    with connect() as conn:
-        rows = conn.execute(sql, (args.limit,)).fetchall()
+    rows = run_async(_fetch_list(sort_sql, args.limit))
 
     table = Table(title=f"Etiketler (sort={args.sort})", header_style="bold cyan")
     table.add_column("ID", justify="right", style="dim")
@@ -63,26 +70,36 @@ def cmd_list(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_add(args: argparse.Namespace) -> int:
-    with connect() as conn:
-        try:
-            conn.execute(
-                "INSERT INTO tags (name, description) VALUES (?, ?)",
-                (args.name, args.description),
+async def _add(name: str, description: str | None) -> bool:
+    try:
+        async with session_scope() as session:
+            await session.execute(
+                text("INSERT INTO tags (name, description) VALUES (:name, :description)"),
+                {"name": name, "description": description},
             )
-            conn.commit()
-        except sqlite3.IntegrityError:
-            console.print(f"[red]Etiket zaten mevcut: {args.name}[/red]")
-            return 1
+        return True
+    except IntegrityError:
+        return False
+
+
+def cmd_add(args: argparse.Namespace) -> int:
+    if not run_async(_add(args.name, args.description)):
+        console.print(f"[red]Etiket zaten mevcut: {args.name}[/red]")
+        return 1
     console.print(f"[green]Etiket eklendi: {args.name}[/green]")
     return 0
 
 
+async def _delete(name: str) -> int:
+    async with session_scope() as session:
+        result = await session.execute(
+            text("DELETE FROM tags WHERE name = :name"), {"name": name}
+        )
+        return result.rowcount
+
+
 def cmd_delete(args: argparse.Namespace) -> int:
-    with connect() as conn:
-        cur = conn.execute("DELETE FROM tags WHERE name = ?", (args.name,))
-        conn.commit()
-    if cur.rowcount == 0:
+    if run_async(_delete(args.name)) == 0:
         console.print(f"[red]Etiket bulunamadı: {args.name}[/red]")
         return 1
     console.print(f"[green]Etiket silindi: {args.name}[/green]")

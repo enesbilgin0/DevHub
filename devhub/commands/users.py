@@ -5,8 +5,10 @@ import argparse
 
 from rich.console import Console
 from rich.table import Table
+from sqlalchemy import text
 
-from ..db import connect
+from ..db import session_scope
+from . import run_async
 
 console = Console()
 
@@ -33,19 +35,23 @@ def add_parser(subparsers: argparse._SubParsersAction) -> None:
     p_show.set_defaults(func=cmd_show)
 
 
-def cmd_list(args: argparse.Namespace) -> int:
-    col = SORT_COLUMNS[args.sort]
-    direction = "DESC" if args.desc else "ASC"
-    sql = f"""
+async def _fetch_list(sort_col: str, direction: str, limit: int):
+    sql = text(f"""
         SELECT u.id, u.username, u.email, u.joined_at, u.reputation,
                (SELECT COUNT(*) FROM questions q WHERE q.user_id = u.id) AS q_count,
-               (SELECT COUNT(*) FROM answers a  WHERE a.user_id = u.id) AS a_count
+               (SELECT COUNT(*) FROM answers  a WHERE a.user_id = u.id) AS a_count
         FROM users u
-        ORDER BY {col} {direction}
-        LIMIT ?
-    """
-    with connect() as conn:
-        rows = conn.execute(sql, (args.limit,)).fetchall()
+        ORDER BY {sort_col} {direction}
+        LIMIT :limit
+    """)
+    async with session_scope() as session:
+        result = await session.execute(sql, {"limit": limit})
+        return result.mappings().all()
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    direction = "DESC" if args.desc else "ASC"
+    rows = run_async(_fetch_list(SORT_COLUMNS[args.sort], direction, args.limit))
 
     table = Table(title=f"Kullanıcılar (sort={args.sort} {direction})", header_style="bold cyan")
     table.add_column("ID", justify="right", style="dim")
@@ -57,34 +63,38 @@ def cmd_list(args: argparse.Namespace) -> int:
     table.add_column("Cevap", justify="right")
     for r in rows:
         table.add_row(
-            str(r["id"]), r["username"], r["email"], r["joined_at"],
+            str(r["id"]), r["username"], r["email"],
+            r["joined_at"].strftime("%Y-%m-%d %H:%M"),
             str(r["reputation"]), str(r["q_count"]), str(r["a_count"]),
         )
     console.print(table)
     return 0
 
 
+async def _fetch_show(user_id: int):
+    async with session_scope() as session:
+        user_row = (await session.execute(
+            text("SELECT * FROM users WHERE id = :id"), {"id": user_id}
+        )).mappings().first()
+        if user_row is None:
+            return None
+        counts = (await session.execute(text("""
+            SELECT
+              (SELECT COUNT(*) FROM questions     WHERE user_id = :id)     AS q_count,
+              (SELECT COUNT(*) FROM answers       WHERE user_id = :id)     AS a_count,
+              (SELECT COUNT(*) FROM user_follows  WHERE followed_id = :id) AS followers,
+              (SELECT COUNT(*) FROM user_follows  WHERE follower_id = :id) AS following,
+              (SELECT COUNT(*) FROM tag_follows   WHERE user_id = :id)     AS followed_tags
+        """), {"id": user_id})).mappings().first()
+        return user_row, counts
+
+
 def cmd_show(args: argparse.Namespace) -> int:
-    with connect() as conn:
-        user = conn.execute("SELECT * FROM users WHERE id = ?", (args.user_id,)).fetchone()
-        if user is None:
-            console.print(f"[red]Kullanıcı bulunamadı: {args.user_id}[/red]")
-            return 1
-        q_count = conn.execute(
-            "SELECT COUNT(*) FROM questions WHERE user_id = ?", (args.user_id,)
-        ).fetchone()[0]
-        a_count = conn.execute(
-            "SELECT COUNT(*) FROM answers WHERE user_id = ?", (args.user_id,)
-        ).fetchone()[0]
-        followers = conn.execute(
-            "SELECT COUNT(*) FROM user_follows WHERE followed_id = ?", (args.user_id,)
-        ).fetchone()[0]
-        following = conn.execute(
-            "SELECT COUNT(*) FROM user_follows WHERE follower_id = ?", (args.user_id,)
-        ).fetchone()[0]
-        followed_tags = conn.execute(
-            "SELECT COUNT(*) FROM tag_follows WHERE user_id = ?", (args.user_id,)
-        ).fetchone()[0]
+    result = run_async(_fetch_show(args.user_id))
+    if result is None:
+        console.print(f"[red]Kullanıcı bulunamadı: {args.user_id}[/red]")
+        return 1
+    user, counts = result
 
     table = Table(title=f"Kullanıcı #{user['id']}", show_header=False, header_style="bold cyan")
     table.add_column("Alan", style="bold")
@@ -92,12 +102,12 @@ def cmd_show(args: argparse.Namespace) -> int:
     table.add_row("Kullanıcı adı", user["username"])
     table.add_row("E-posta", user["email"])
     table.add_row("Bio", user["bio"] or "—")
-    table.add_row("Katılım", user["joined_at"])
+    table.add_row("Katılım", user["joined_at"].strftime("%Y-%m-%d %H:%M"))
     table.add_row("İtibar", str(user["reputation"]))
-    table.add_row("Soru sayısı", str(q_count))
-    table.add_row("Cevap sayısı", str(a_count))
-    table.add_row("Takipçi", str(followers))
-    table.add_row("Takip ettiği kişi", str(following))
-    table.add_row("Takip ettiği etiket", str(followed_tags))
+    table.add_row("Soru sayısı", str(counts["q_count"]))
+    table.add_row("Cevap sayısı", str(counts["a_count"]))
+    table.add_row("Takipçi", str(counts["followers"]))
+    table.add_row("Takip ettiği kişi", str(counts["following"]))
+    table.add_row("Takip ettiği etiket", str(counts["followed_tags"]))
     console.print(table)
     return 0
