@@ -13,6 +13,7 @@ from ...models import (
     User,
     Vote,
 )
+from ..cache import cache_get, cache_set, invalidate
 from ..deps import CurrentUser, SessionDep
 from ..schemas import (
     Page,
@@ -28,6 +29,20 @@ from ..schemas import (
 router = APIRouter(prefix="/questions", tags=["questions"])
 
 VALID_SORT = {"created", "votes", "views", "answers"}
+
+QLIST_KEY = "qlist:{sort}:{desc}:{tag}:{author}:{page}:{page_size}"
+QDETAIL_KEY = "question:{qid}"
+QLIST_PATTERN = "qlist:*"
+ALIST_PATTERN_FOR = "alist:{qid}:*"
+TAGLIST_PATTERN = "taglist:*"
+
+
+def _qdetail_key(qid: int) -> str:
+    return QDETAIL_KEY.format(qid=qid)
+
+
+async def _invalidate_question(qid: int) -> None:
+    await invalidate([QLIST_PATTERN, _qdetail_key(qid)])
 
 
 async def _get_question_or_404(session: SessionDep, qid: int) -> Question:
@@ -118,9 +133,17 @@ async def list_questions(
     desc: bool = Query(True),
     tag: str | None = Query(None),
     author: str | None = Query(None),
-) -> Page[QuestionSummary]:
+):
     if sort not in VALID_SORT:
         raise HTTPException(status_code=400, detail=f"sort must be one of {VALID_SORT}")
+
+    cache_key = QLIST_KEY.format(
+        sort=sort, desc=int(desc), tag=tag or "-", author=author or "-",
+        page=page, page_size=page_size,
+    )
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return Response(content=cached, media_type="application/json")
 
     vote_score = func.coalesce(
         select(func.sum(Vote.value))
@@ -212,13 +235,21 @@ async def list_questions(
         )
         for r in rows
     ]
-    return Page(items=items, total=total, page=page, page_size=page_size)
+    page_obj = Page[QuestionSummary](items=items, total=total, page=page, page_size=page_size)
+    await cache_set(cache_key, page_obj.model_dump_json())
+    return page_obj
 
 
 @router.get("/{qid}", response_model=QuestionDetail)
-async def get_question(qid: int, session: SessionDep) -> QuestionDetail:
+async def get_question(qid: int, session: SessionDep):
+    cache_key = _qdetail_key(qid)
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return Response(content=cached, media_type="application/json")
     data = await _summary_row(session, qid)
-    return QuestionDetail(**data)
+    detail = QuestionDetail(**data)
+    await cache_set(cache_key, detail.model_dump_json())
+    return detail
 
 
 @router.post("", response_model=QuestionDetail, status_code=status.HTTP_201_CREATED)
@@ -233,7 +264,9 @@ async def create_question(
         await session.execute(
             insert(QuestionTag), [{"question_id": q.id, "tag_id": t} for t in tag_ids]
         )
-    return QuestionDetail(**(await _summary_row(session, q.id)))
+    detail = QuestionDetail(**(await _summary_row(session, q.id)))
+    await invalidate([QLIST_PATTERN, TAGLIST_PATTERN])
+    return detail
 
 
 @router.patch("/{qid}", response_model=QuestionDetail)
@@ -258,7 +291,11 @@ async def update_question(
                 insert(QuestionTag), [{"question_id": qid, "tag_id": t} for t in tag_ids]
             )
     await session.flush()
-    return QuestionDetail(**(await _summary_row(session, qid)))
+    detail = QuestionDetail(**(await _summary_row(session, qid)))
+    await _invalidate_question(qid)
+    if payload.tags is not None:
+        await invalidate([TAGLIST_PATTERN])
+    return detail
 
 
 @router.delete("/{qid}", status_code=status.HTTP_204_NO_CONTENT)
@@ -269,6 +306,7 @@ async def delete_question(
     if q.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the question owner")
     await session.execute(delete(Question).where(Question.id == qid))
+    await _invalidate_question(qid)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -301,6 +339,7 @@ async def vote_question(
     )
     await session.execute(stmt)
     score = await _vote_score(session, "question", qid)
+    await _invalidate_question(qid)
     return VoteOut(target_type="question", target_id=qid, value=payload.value, score=score)
 
 
@@ -317,4 +356,5 @@ async def unvote_question(
         )
     )
     score = await _vote_score(session, "question", qid)
+    await _invalidate_question(qid)
     return VoteOut(target_type="question", target_id=qid, value=0, score=score)

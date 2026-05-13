@@ -1,15 +1,19 @@
 """Etiket router'ı."""
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from ...models import QuestionTag, Tag
+from ..cache import cache_get, cache_set, invalidate
 from ..deps import CurrentUser, SessionDep
 from ..schemas import Page, TagCreate, TagOut
 
 router = APIRouter(prefix="/tags", tags=["tags"])
+
+TAGLIST_KEY = "taglist:{sort}:{search}:{page}:{page_size}"
+TAGLIST_PATTERN = "taglist:*"
 
 
 @router.get("", response_model=Page[TagOut])
@@ -19,7 +23,14 @@ async def list_tags(
     page_size: int = Query(30, ge=1, le=100),
     sort: str = Query("questions", pattern="^(name|questions)$"),
     search: str | None = Query(None, min_length=1, max_length=64),
-) -> Page[TagOut]:
+):
+    cache_key = TAGLIST_KEY.format(
+        sort=sort, search=search or "-", page=page, page_size=page_size
+    )
+    cached = await cache_get(cache_key)
+    if cached is not None:
+        return Response(content=cached, media_type="application/json")
+
     qcount = (
         select(QuestionTag.tag_id, func.count().label("cnt"))
         .group_by(QuestionTag.tag_id)
@@ -48,7 +59,9 @@ async def list_tags(
         TagOut(id=r.id, name=r.name, description=r.description, question_count=r.question_count)
         for r in rows
     ]
-    return Page(items=items, total=total, page=page, page_size=page_size)
+    page_obj = Page[TagOut](items=items, total=total, page=page, page_size=page_size)
+    await cache_set(cache_key, page_obj.model_dump_json())
+    return page_obj
 
 
 @router.get("/{name}", response_model=TagOut)
@@ -79,4 +92,5 @@ async def create_tag(
     except IntegrityError:
         await session.rollback()
         raise HTTPException(status_code=409, detail="Tag already exists")
+    await invalidate([TAGLIST_PATTERN])
     return TagOut(id=tag.id, name=tag.name, description=tag.description, question_count=0)

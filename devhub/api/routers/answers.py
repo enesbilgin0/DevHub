@@ -6,10 +6,21 @@ from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ...models import Answer, Question, User, Vote
+from ..cache import invalidate
 from ..deps import CurrentUser, SessionDep
 from ..schemas import AnswerCreate, AnswerOut, AnswerUpdate, Page, UserSummary, VoteIn, VoteOut
 
 router = APIRouter(tags=["answers"])
+
+QLIST_PATTERN = "qlist:*"
+
+
+def _qdetail_key(qid: int) -> str:
+    return f"question:{qid}"
+
+
+async def _invalidate_question(qid: int) -> None:
+    await invalidate([QLIST_PATTERN, _qdetail_key(qid)])
 
 
 async def _get_answer_or_404(session: SessionDep, aid: int) -> Answer:
@@ -119,7 +130,9 @@ async def create_answer(
     a = Answer(question_id=qid, user_id=current_user.id, body=payload.body, is_accepted=False)
     session.add(a)
     await session.flush()
-    return await _select_answer(session, a.id)
+    out = await _select_answer(session, a.id)
+    await _invalidate_question(qid)
+    return out
 
 
 @router.patch("/answers/{aid}", response_model=AnswerOut)
@@ -134,7 +147,9 @@ async def update_answer(
         raise HTTPException(status_code=403, detail="Not the answer owner")
     a.body = payload.body
     await session.flush()
-    return await _select_answer(session, aid)
+    out = await _select_answer(session, aid)
+    await _invalidate_question(a.question_id)
+    return out
 
 
 @router.delete("/answers/{aid}", status_code=status.HTTP_204_NO_CONTENT)
@@ -144,7 +159,9 @@ async def delete_answer(
     a = await _get_answer_or_404(session, aid)
     if a.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the answer owner")
+    qid = a.question_id
     await session.execute(delete(Answer).where(Answer.id == aid))
+    await _invalidate_question(qid)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -167,7 +184,9 @@ async def accept_answer(
         .values(is_accepted=False)
     )
     await session.execute(update(Answer).where(Answer.id == aid).values(is_accepted=True))
-    return await _select_answer(session, aid)
+    out = await _select_answer(session, aid)
+    await _invalidate_question(a.question_id)
+    return out
 
 
 @router.post("/answers/{aid}/vote", response_model=VoteOut)
@@ -191,6 +210,7 @@ async def vote_answer(
         select(func.coalesce(func.sum(Vote.value), 0))
         .where(Vote.target_type == "answer", Vote.target_id == aid)
     )).scalar_one())
+    await _invalidate_question(a.question_id)
     return VoteOut(target_type="answer", target_id=aid, value=payload.value, score=score)
 
 
@@ -198,7 +218,7 @@ async def vote_answer(
 async def unvote_answer(
     aid: int, session: SessionDep, current_user: CurrentUser
 ) -> VoteOut:
-    await _get_answer_or_404(session, aid)
+    a = await _get_answer_or_404(session, aid)
     await session.execute(
         delete(Vote).where(
             Vote.user_id == current_user.id,
@@ -210,4 +230,5 @@ async def unvote_answer(
         select(func.coalesce(func.sum(Vote.value), 0))
         .where(Vote.target_type == "answer", Vote.target_id == aid)
     )).scalar_one())
+    await _invalidate_question(a.question_id)
     return VoteOut(target_type="answer", target_id=aid, value=0, score=score)

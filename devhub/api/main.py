@@ -6,12 +6,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from ..db import dispose_engine
+from .cache import close_redis
 from .routers import answers, auth, questions, tags
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
+    await close_redis()
     await dispose_engine()
 
 
