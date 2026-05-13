@@ -17,17 +17,22 @@ from faker import Faker
 from sqlalchemy import delete, insert, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .api.security import hash_password
 from .db import session_scope
 from .models import (
     Answer,
     Question,
     QuestionTag,
+    RefreshToken,
     Tag,
     TagFollow,
     User,
     UserFollow,
     Vote,
 )
+
+SEED_PASSWORD = "devhub"
+"""Tüm seed kullanıcıları için ortak şifre — sadece geliştirme/test içindir."""
 
 DEFAULT_USERS = 100
 DEFAULT_QUESTIONS = 500
@@ -70,6 +75,7 @@ PREDEFINED_TAGS: list[tuple[str, str]] = [
 async def _truncate_all(session: AsyncSession) -> None:
     """FK kısıtlarına dokunmadan tüm tabloları boşalt (silme sırası önemli)."""
     for model in (
+        RefreshToken,
         Vote,
         TagFollow,
         UserFollow,
@@ -83,6 +89,8 @@ async def _truncate_all(session: AsyncSession) -> None:
 
 
 async def _insert_users(session: AsyncSession, fake: Faker, count: int) -> list[int]:
+    # Tek hash herkese yetiyor (her kullanıcı için ayrı bcrypt çağrısı yavaş olur).
+    shared_hash = hash_password(SEED_PASSWORD)
     rows = []
     seen_usernames: set[str] = set()
     seen_emails: set[str] = set()
@@ -96,6 +104,7 @@ async def _insert_users(session: AsyncSession, fake: Faker, count: int) -> list[
         rows.append({
             "username": username,
             "email": email,
+            "password_hash": shared_hash,
             "bio": fake.sentence(nb_words=8),
             "joined_at": fake.date_time_between(start_date="-3y", end_date="now"),
             "reputation": random.randint(0, 5000),

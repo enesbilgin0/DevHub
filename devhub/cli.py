@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from .commands import questions, seed_cmd, stats, tags, users
+from .commands import questions, seed_cmd, serve, stats, tags, users
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     tags.add_parser(sub)
     stats.add_parser(sub)
     seed_cmd.add_parser(sub)
+    serve.add_parser(sub)
     return parser
 
 
