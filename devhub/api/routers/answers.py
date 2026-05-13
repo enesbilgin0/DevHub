@@ -9,6 +9,7 @@ from ...models import Answer, Question, User, Vote
 from ..cache import invalidate
 from ..deps import CurrentUser, SessionDep
 from ..schemas import AnswerCreate, AnswerOut, AnswerUpdate, Page, UserSummary, VoteIn, VoteOut
+from ..ws import manager as ws_manager
 
 router = APIRouter(tags=["answers"])
 
@@ -125,13 +126,23 @@ async def create_answer(
     session: SessionDep,
     current_user: CurrentUser,
 ) -> AnswerOut:
-    if (await session.execute(select(Question.id).where(Question.id == qid))).scalar_one_or_none() is None:
+    q_owner = (await session.execute(
+        select(Question.user_id).where(Question.id == qid)
+    )).scalar_one_or_none()
+    if q_owner is None:
         raise HTTPException(status_code=404, detail="Question not found")
     a = Answer(question_id=qid, user_id=current_user.id, body=payload.body, is_accepted=False)
     session.add(a)
     await session.flush()
     out = await _select_answer(session, a.id)
     await _invalidate_question(qid)
+    if q_owner != current_user.id:
+        await ws_manager.send_to_user(q_owner, {
+            "type": "answer.created",
+            "question_id": qid,
+            "answer_id": a.id,
+            "from": {"id": current_user.id, "username": current_user.username},
+        })
     return out
 
 
@@ -186,6 +197,13 @@ async def accept_answer(
     await session.execute(update(Answer).where(Answer.id == aid).values(is_accepted=True))
     out = await _select_answer(session, aid)
     await _invalidate_question(a.question_id)
+    if a.user_id != current_user.id:
+        await ws_manager.send_to_user(a.user_id, {
+            "type": "answer.accepted",
+            "answer_id": aid,
+            "question_id": a.question_id,
+            "from": {"id": current_user.id, "username": current_user.username},
+        })
     return out
 
 
@@ -211,6 +229,14 @@ async def vote_answer(
         .where(Vote.target_type == "answer", Vote.target_id == aid)
     )).scalar_one())
     await _invalidate_question(a.question_id)
+    await ws_manager.send_to_user(a.user_id, {
+        "type": "vote.cast",
+        "target_type": "answer",
+        "target_id": aid,
+        "value": payload.value,
+        "score": score,
+        "from": {"id": current_user.id, "username": current_user.username},
+    })
     return VoteOut(target_type="answer", target_id=aid, value=payload.value, score=score)
 
 

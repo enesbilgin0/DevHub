@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from ..db import dispose_engine
 from .cache import close_redis
-from .routers import answers, auth, questions, tags
+from .routers import answers, auth, questions, tags, ws
 
 
 @asynccontextmanager
@@ -28,6 +28,7 @@ app.include_router(auth.router)
 app.include_router(tags.router)
 app.include_router(questions.router)
 app.include_router(answers.router)
+app.include_router(ws.router)
 
 
 @app.get("/health", tags=["meta"])

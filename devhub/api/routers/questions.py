@@ -15,6 +15,7 @@ from ...models import (
 )
 from ..cache import cache_get, cache_set, invalidate
 from ..deps import CurrentUser, SessionDep
+from ..ws import manager as ws_manager
 from ..schemas import (
     Page,
     QuestionCreate,
@@ -340,6 +341,14 @@ async def vote_question(
     await session.execute(stmt)
     score = await _vote_score(session, "question", qid)
     await _invalidate_question(qid)
+    await ws_manager.send_to_user(q.user_id, {
+        "type": "vote.cast",
+        "target_type": "question",
+        "target_id": qid,
+        "value": payload.value,
+        "score": score,
+        "from": {"id": current_user.id, "username": current_user.username},
+    })
     return VoteOut(target_type="question", target_id=qid, value=payload.value, score=score)
 
 
