@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Annotated
 
 import jwt
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -34,7 +36,14 @@ async def _issue_token_pair(session: SessionDep, user: User) -> TokenPair:
     )
 
 
-@router.post("/register", response_model=TokenPair, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=TokenPair,
+    status_code=status.HTTP_201_CREATED,
+    summary="Yeni kullanıcı kaydı",
+    description="Username, email ve şifre ile yeni hesap oluşturur ve token çiftini döner.",
+    responses={409: {"description": "Username veya email kullanımda"}},
+)
 async def register(payload: RegisterIn, session: SessionDep) -> TokenPair:
     user = User(
         username=payload.username,
@@ -54,7 +63,13 @@ async def register(payload: RegisterIn, session: SessionDep) -> TokenPair:
     return await _issue_token_pair(session, user)
 
 
-@router.post("/login", response_model=TokenPair)
+@router.post(
+    "/login",
+    response_model=TokenPair,
+    summary="Giriş (JSON)",
+    description="`identifier` username veya email olabilir. Başarılıysa access + refresh token döner.",
+    responses={401: {"description": "Hatalı kimlik bilgisi"}},
+)
 async def login(payload: LoginIn, session: SessionDep) -> TokenPair:
     stmt = select(User).where(
         or_(User.username == payload.identifier, User.email == payload.identifier)
@@ -68,7 +83,30 @@ async def login(payload: LoginIn, session: SessionDep) -> TokenPair:
     return await _issue_token_pair(session, user)
 
 
-@router.post("/refresh", response_model=TokenPair)
+@router.post(
+    "/token",
+    response_model=TokenPair,
+    summary="OAuth2 form-tabanlı giriş",
+    description=(
+        "Swagger UI'daki 'Authorize' butonu için OAuth2 password grant uyumlu endpoint."
+        " Form alanları: `username`, `password`. Response /login ile aynıdır."
+    ),
+    responses={401: {"description": "Hatalı kimlik bilgisi"}},
+)
+async def login_form(
+    form: Annotated[OAuth2PasswordRequestForm, Depends()],
+    session: SessionDep,
+) -> TokenPair:
+    return await login(LoginIn(identifier=form.username, password=form.password), session)
+
+
+@router.post(
+    "/refresh",
+    response_model=TokenPair,
+    summary="Refresh token ile yeni access üret",
+    description="Refresh token rotation: kullanılan jti revoke edilir, yeni jti üretilir.",
+    responses={401: {"description": "Refresh token geçersiz veya süresi dolmuş"}},
+)
 async def refresh(payload: RefreshIn, session: SessionDep) -> TokenPair:
     try:
         claims = decode_token(payload.refresh_token, expected_type="refresh")
@@ -94,9 +132,12 @@ async def refresh(payload: RefreshIn, session: SessionDep) -> TokenPair:
     return await _issue_token_pair(session, user)
 
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Bu kullanıcının tüm refresh token'larını revoke et",
+)
 async def logout(current_user: CurrentUser, session: SessionDep) -> None:
-    """Bu kullanıcının tüm aktif refresh token'larını revoke et."""
     await session.execute(
         update(RefreshToken)
         .where(RefreshToken.user_id == current_user.id, RefreshToken.revoked.is_(False))
@@ -104,6 +145,11 @@ async def logout(current_user: CurrentUser, session: SessionDep) -> None:
     )
 
 
-@router.get("/me", response_model=UserOut)
+@router.get(
+    "/me",
+    response_model=UserOut,
+    summary="Mevcut kullanıcının profili",
+    responses={401: {"description": "Geçersiz veya eksik access token"}},
+)
 async def me(current_user: CurrentUser) -> User:
     return current_user

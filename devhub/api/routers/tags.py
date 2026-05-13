@@ -16,7 +16,7 @@ TAGLIST_KEY = "taglist:{sort}:{search}:{page}:{page_size}"
 TAGLIST_PATTERN = "taglist:*"
 
 
-@router.get("", response_model=Page[TagOut])
+@router.get("", response_model=Page[TagOut], summary="Etiketleri listele")
 async def list_tags(
     session: SessionDep,
     page: int = Query(1, ge=1),
@@ -64,7 +64,12 @@ async def list_tags(
     return page_obj
 
 
-@router.get("/{name}", response_model=TagOut)
+@router.get(
+    "/{name}",
+    response_model=TagOut,
+    summary="Bir etiketin detayı",
+    responses={404: {"description": "Etiket bulunamadı"}},
+)
 async def get_tag(name: str, session: SessionDep) -> TagOut:
     row = (await session.execute(
         select(
@@ -81,7 +86,13 @@ async def get_tag(name: str, session: SessionDep) -> TagOut:
     return TagOut(id=row.id, name=row.name, description=row.description, question_count=row.question_count)
 
 
-@router.post("", response_model=TagOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=TagOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Yeni etiket oluştur (auth)",
+    responses={409: {"description": "Etiket zaten mevcut"}},
+)
 async def create_tag(
     payload: TagCreate, session: SessionDep, _user: CurrentUser
 ) -> TagOut:

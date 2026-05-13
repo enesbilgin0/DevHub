@@ -125,7 +125,12 @@ async def _summary_row(session: SessionDep, qid: int) -> dict:
     }
 
 
-@router.get("", response_model=Page[QuestionSummary])
+@router.get(
+    "",
+    response_model=Page[QuestionSummary],
+    summary="Soruları listele",
+    description="Sıralama: created/votes/views/answers. Filtre: tag, author. Sonuçlar 60 sn cache'lenir.",
+)
 async def list_questions(
     session: SessionDep,
     page: int = Query(1, ge=1),
@@ -241,7 +246,12 @@ async def list_questions(
     return page_obj
 
 
-@router.get("/{qid}", response_model=QuestionDetail)
+@router.get(
+    "/{qid}",
+    response_model=QuestionDetail,
+    summary="Bir sorunun detayı",
+    responses={404: {"description": "Soru bulunamadı"}},
+)
 async def get_question(qid: int, session: SessionDep):
     cache_key = _qdetail_key(qid)
     cached = await cache_get(cache_key)
@@ -253,7 +263,13 @@ async def get_question(qid: int, session: SessionDep):
     return detail
 
 
-@router.post("", response_model=QuestionDetail, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=QuestionDetail,
+    status_code=status.HTTP_201_CREATED,
+    summary="Yeni soru yarat (auth)",
+    description="`tags` listesindeki yeni etiketler otomatik oluşturulur.",
+)
 async def create_question(
     payload: QuestionCreate, session: SessionDep, current_user: CurrentUser
 ) -> QuestionDetail:
@@ -270,7 +286,12 @@ async def create_question(
     return detail
 
 
-@router.patch("/{qid}", response_model=QuestionDetail)
+@router.patch(
+    "/{qid}",
+    response_model=QuestionDetail,
+    summary="Soruyu güncelle (sahibi)",
+    responses={403: {"description": "Soru sahibi değilsin"}, 404: {"description": "Soru bulunamadı"}},
+)
 async def update_question(
     qid: int,
     payload: QuestionUpdate,
@@ -299,7 +320,12 @@ async def update_question(
     return detail
 
 
-@router.delete("/{qid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{qid}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Soruyu sil (sahibi)",
+    responses={403: {"description": "Soru sahibi değilsin"}, 404: {"description": "Soru bulunamadı"}},
+)
 async def delete_question(
     qid: int, session: SessionDep, current_user: CurrentUser
 ) -> Response:
@@ -321,7 +347,12 @@ async def _vote_score(session: SessionDep, target_type: str, target_id: int) -> 
     return int(res)
 
 
-@router.post("/{qid}/vote", response_model=VoteOut)
+@router.post(
+    "/{qid}/vote",
+    response_model=VoteOut,
+    summary="Soruya oy ver (+1 / -1) — UPSERT",
+    responses={400: {"description": "Kendi sorusuna oy vermek yasak"}},
+)
 async def vote_question(
     qid: int, payload: VoteIn, session: SessionDep, current_user: CurrentUser
 ) -> VoteOut:
@@ -352,7 +383,7 @@ async def vote_question(
     return VoteOut(target_type="question", target_id=qid, value=payload.value, score=score)
 
 
-@router.delete("/{qid}/vote", response_model=VoteOut)
+@router.delete("/{qid}/vote", response_model=VoteOut, summary="Soruya verilen oyu geri çek")
 async def unvote_question(
     qid: int, session: SessionDep, current_user: CurrentUser
 ) -> VoteOut:

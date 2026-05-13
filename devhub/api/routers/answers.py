@@ -70,7 +70,12 @@ async def _select_answer(session: SessionDep, aid: int) -> AnswerOut:
     return _answer_row_to_out(row)
 
 
-@router.get("/questions/{qid}/answers", response_model=Page[AnswerOut])
+@router.get(
+    "/questions/{qid}/answers",
+    response_model=Page[AnswerOut],
+    summary="Sorunun cevaplarını listele",
+    description="Sıralama: kabul edilen ilk → vote_score desc → tarih asc.",
+)
 async def list_answers(
     qid: int,
     session: SessionDep,
@@ -119,6 +124,8 @@ async def list_answers(
     "/questions/{qid}/answers",
     response_model=AnswerOut,
     status_code=status.HTTP_201_CREATED,
+    summary="Soruya cevap yaz (auth)",
+    description="Soru sahibi farklı bir kullanıcıysa WS üzerinden 'answer.created' bildirimi gider.",
 )
 async def create_answer(
     qid: int,
@@ -146,7 +153,7 @@ async def create_answer(
     return out
 
 
-@router.patch("/answers/{aid}", response_model=AnswerOut)
+@router.patch("/answers/{aid}", response_model=AnswerOut, summary="Cevabı güncelle (sahibi)")
 async def update_answer(
     aid: int,
     payload: AnswerUpdate,
@@ -163,7 +170,11 @@ async def update_answer(
     return out
 
 
-@router.delete("/answers/{aid}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/answers/{aid}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Cevabı sil (sahibi)",
+)
 async def delete_answer(
     aid: int, session: SessionDep, current_user: CurrentUser
 ) -> Response:
@@ -176,7 +187,13 @@ async def delete_answer(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/answers/{aid}/accept", response_model=AnswerOut)
+@router.post(
+    "/answers/{aid}/accept",
+    response_model=AnswerOut,
+    summary="Cevabı kabul et (sadece soru sahibi)",
+    description="Aynı sorudaki diğer kabul edilmiş cevaplar kabul-dışı işaretlenir.",
+    responses={403: {"description": "Sadece soru sahibi kabul edebilir"}},
+)
 async def accept_answer(
     aid: int, session: SessionDep, current_user: CurrentUser
 ) -> AnswerOut:
@@ -207,7 +224,12 @@ async def accept_answer(
     return out
 
 
-@router.post("/answers/{aid}/vote", response_model=VoteOut)
+@router.post(
+    "/answers/{aid}/vote",
+    response_model=VoteOut,
+    summary="Cevaba oy ver (+1 / -1) — UPSERT",
+    responses={400: {"description": "Kendi cevabına oy vermek yasak"}},
+)
 async def vote_answer(
     aid: int, payload: VoteIn, session: SessionDep, current_user: CurrentUser
 ) -> VoteOut:
@@ -240,7 +262,7 @@ async def vote_answer(
     return VoteOut(target_type="answer", target_id=aid, value=payload.value, score=score)
 
 
-@router.delete("/answers/{aid}/vote", response_model=VoteOut)
+@router.delete("/answers/{aid}/vote", response_model=VoteOut, summary="Cevaba verilen oyu geri çek")
 async def unvote_answer(
     aid: int, session: SessionDep, current_user: CurrentUser
 ) -> VoteOut:

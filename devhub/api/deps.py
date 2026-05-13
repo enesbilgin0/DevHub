@@ -14,7 +14,7 @@ from ..db import get_sessionmaker
 from ..models import User
 from .security import decode_token
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
 
 
 async def get_db() -> AsyncIterator[AsyncSession]:
