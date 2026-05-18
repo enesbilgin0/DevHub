@@ -47,6 +47,8 @@ export interface ListParams {
   page?: number
   sort?: QuestionSort
   tag?: string
+  author?: string
+  pageSize?: number
 }
 
 /** Soru listesi (public okuma). */
@@ -54,14 +56,17 @@ export async function listQuestions({
   page = 1,
   sort = 'created',
   tag,
+  author,
+  pageSize = 20,
 }: ListParams): Promise<PageResult<QuestionSummary>> {
   const qs = new URLSearchParams({
     page: String(page),
-    page_size: '20',
+    page_size: String(pageSize),
     sort,
     desc: 'true',
   })
   if (tag) qs.set('tag', tag)
+  if (author) qs.set('author', author)
   const res = await apiFetch(`/questions?${qs.toString()}`)
   if (!res.ok) throw new Error('Sorular yüklenemedi')
   return res.json()

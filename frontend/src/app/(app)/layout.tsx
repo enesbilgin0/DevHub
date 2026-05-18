@@ -33,7 +33,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                   Soru sor
                 </Link>
                 <Link
-                  href="/feed"
+                  href={`/users/${encodeURIComponent(user.username)}`}
                   className="text-neutral-700 hover:underline dark:text-neutral-300"
                 >
                   {user.username}

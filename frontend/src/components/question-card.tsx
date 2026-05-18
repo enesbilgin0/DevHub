@@ -43,9 +43,12 @@ export function QuestionCard({ q }: { q: QuestionSummary }) {
           ))}
         </div>
         <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">
-          <span className="font-medium text-neutral-700 dark:text-neutral-300">
+          <Link
+            href={`/users/${encodeURIComponent(q.author.username)}`}
+            className="font-medium text-neutral-700 hover:underline dark:text-neutral-300"
+          >
             {q.author.username}
-          </span>{' '}
+          </Link>{' '}
           · {q.author.reputation} itibar · {timeAgo(q.created_at)}
         </p>
       </div>

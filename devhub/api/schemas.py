@@ -152,3 +152,43 @@ class Page[T](BaseModel):
         if self.page_size == 0:
             return 0
         return (self.total + self.page_size - 1) // self.page_size
+
+
+# --- User profile / istatistik --------------------------------------------
+
+
+class UserStats(BaseModel):
+    questions: int
+    answers: int
+    accepted_answers: int
+    votes_received: int
+
+
+class Badge(BaseModel):
+    key: str
+    label: str
+    description: str
+
+
+class UserProfile(BaseModel):
+    id: int
+    username: str
+    bio: str | None = None
+    joined_at: datetime
+    reputation: int
+    stats: UserStats
+    badges: list[Badge]
+
+
+class ActivityDay(BaseModel):
+    day: str
+    count: int
+
+
+class UserAnswer(BaseModel):
+    id: int
+    question_id: int
+    question_title: str
+    created_at: datetime
+    is_accepted: bool
+    vote_score: int

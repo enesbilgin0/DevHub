@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from ..db import dispose_engine
 from .cache import close_redis
-from .routers import answers, auth, questions, tags, ws
+from .routers import answers, auth, questions, tags, users, ws
 
 OPENAPI_TAGS = [
     {
@@ -38,6 +38,10 @@ OPENAPI_TAGS = [
             "WebSocket bildirim akışı. `?token=<access_jwt>` ile bağlanın; cevap yazma,"
             " kabul ve oylama olayları gerçek zamanlı yayılır."
         ),
+    },
+    {
+        "name": "users",
+        "description": "Public kullanıcı profili — istatistik, rozet ve günlük katkı aktivitesi.",
     },
     {"name": "meta", "description": "Sağlık kontrolü gibi servis-içi endpoint'ler."},
 ]
@@ -71,6 +75,7 @@ app.include_router(auth.router)
 app.include_router(tags.router)
 app.include_router(questions.router)
 app.include_router(answers.router)
+app.include_router(users.router)
 app.include_router(ws.router)
 
 

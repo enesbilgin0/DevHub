@@ -71,8 +71,13 @@ export default async function QuestionDetailPage({
           </div>
           <div className="mt-4 flex items-center justify-between">
             <p className={metaText}>
-              <span className={authorName}>{question.author.username}</span> ·{' '}
-              {question.author.reputation} itibar
+              <Link
+                href={`/users/${encodeURIComponent(question.author.username)}`}
+                className={`${authorName} hover:underline`}
+              >
+                {question.author.username}
+              </Link>{' '}
+              · {question.author.reputation} itibar
             </p>
             {isOwner && (
               <form action={deleteQuestion.bind(null, question.id)}>
@@ -122,8 +127,13 @@ export default async function QuestionDetailPage({
                 <Markdown>{a.body}</Markdown>
                 <div className="mt-3 flex items-center justify-between">
                   <p className={metaText}>
-                    <span className={authorName}>{a.author.username}</span> ·{' '}
-                    {timeAgo(a.created_at)}
+                    <Link
+                      href={`/users/${encodeURIComponent(a.author.username)}`}
+                      className={`${authorName} hover:underline`}
+                    >
+                      {a.author.username}
+                    </Link>{' '}
+                    · {timeAgo(a.created_at)}
                   </p>
                   <div className="flex gap-3">
                     {isOwner && !a.is_accepted && (
