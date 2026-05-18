@@ -7,4 +7,14 @@ venv/
 *.db-journal
 .DS_Store
 exports/
+
+# Sırlar — kazara commit'lenmesini önlemek için (.env.example hariç)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.pub
