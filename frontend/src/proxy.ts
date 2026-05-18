@@ -7,7 +7,7 @@ import type { NextRequest } from 'next/server'
 const API_URL = process.env.API_URL ?? 'http://127.0.0.1:8000'
 const isProd = process.env.NODE_ENV === 'production'
 
-const PROTECTED = ['/feed']
+const PROTECTED = ['/feed', '/questions/ask']
 const AUTH_PAGES = ['/login', '/register']
 
 interface TokenPair {

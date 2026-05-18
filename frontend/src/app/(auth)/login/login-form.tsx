@@ -5,7 +5,8 @@ import { useActionState } from 'react'
 import { login, type AuthState } from '@/app/actions/auth'
 
 const fieldClass =
-  'w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none focus:border-neutral-900'
+  'w-full rounded-md border border-neutral-300 bg-transparent px-3 py-2 text-sm outline-none focus:border-neutral-900 dark:border-neutral-700 dark:focus:border-neutral-300'
+const errClass = 'mt-1 text-xs text-red-600 dark:text-red-400'
 
 export function LoginForm() {
   const [state, formAction, pending] = useActionState<AuthState, FormData>(
@@ -21,7 +22,7 @@ export function LoginForm() {
         </label>
         <input id="identifier" name="identifier" className={fieldClass} autoComplete="username" />
         {state?.fieldErrors?.identifier && (
-          <p className="mt-1 text-xs text-red-600">{state.fieldErrors.identifier[0]}</p>
+          <p className={errClass}>{state.fieldErrors.identifier[0]}</p>
         )}
       </div>
 
@@ -37,16 +38,18 @@ export function LoginForm() {
           autoComplete="current-password"
         />
         {state?.fieldErrors?.password && (
-          <p className="mt-1 text-xs text-red-600">{state.fieldErrors.password[0]}</p>
+          <p className={errClass}>{state.fieldErrors.password[0]}</p>
         )}
       </div>
 
-      {state?.error && <p className="text-sm text-red-600">{state.error}</p>}
+      {state?.error && (
+        <p className="text-sm text-red-600 dark:text-red-400">{state.error}</p>
+      )}
 
       <button
         type="submit"
         disabled={pending}
-        className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60"
+        className="rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white hover:bg-neutral-700 disabled:opacity-60 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-300"
       >
         {pending ? 'Giriş yapılıyor…' : 'Giriş yap'}
       </button>
