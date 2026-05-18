@@ -18,3 +18,12 @@ exports/
 *.pfx
 id_rsa
 id_rsa.pub
+
+# Çeşitli AI
+CLAUDE.md
+AGENTS.md
+.claude/
+.cursor/
+.cursorrules
+.aider*
+.github/copilot-instructions.md
