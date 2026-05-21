@@ -40,6 +40,43 @@ export interface UserAnswer {
   vote_score: number
 }
 
+export interface UserListItem {
+  id: number
+  username: string
+  reputation: number
+  joined_at: string
+  bio: string | null
+  question_count: number
+  answer_count: number
+}
+
+export type UserSort = 'reputation' | 'joined' | 'username'
+
+export interface ListUsersParams {
+  page?: number
+  pageSize?: number
+  sort?: UserSort
+  search?: string
+}
+
+export async function listUsers({
+  page = 1,
+  pageSize = 30,
+  sort = 'reputation',
+  search,
+}: ListUsersParams): Promise<PageResult<UserListItem>> {
+  const qs = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    sort,
+    desc: sort === 'username' ? 'false' : 'true',
+  })
+  if (search) qs.set('search', search)
+  const res = await apiFetch(`/users?${qs.toString()}`)
+  if (!res.ok) throw new Error('Kullanıcılar yüklenemedi')
+  return res.json()
+}
+
 /** Public profil; kullanıcı yoksa null. */
 export async function getProfile(username: string): Promise<UserProfile | null> {
   const res = await apiFetch(`/users/${encodeURIComponent(username)}`)

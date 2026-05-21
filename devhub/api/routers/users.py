@@ -3,21 +3,31 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import func, select, text
 
 from ...models import Answer, Question, User
+from ..cache import cache_get, cache_set
 from ..deps import SessionDep
 from ..schemas import (
     ActivityDay,
     Badge,
     Page,
     UserAnswer,
+    UserListItem,
     UserProfile,
     UserStats,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+VALID_USER_SORT = {"reputation", "joined", "username"}
+USERLIST_KEY = "userlist:{sort}:{desc}:{page}:{page_size}"
+
+
+def _escape_like(value: str) -> str:
+    """LIKE wildcard escape; bkz. questions.py'deki aynı yardımcı."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 async def _get_user_or_404(session: SessionDep, username: str) -> User:
@@ -48,6 +58,100 @@ def _badges(stats: UserStats, reputation: int) -> list[Badge]:
         if ok:
             earned.append(Badge(key=key, label=label, description=desc))
     return earned
+
+
+@router.get(
+    "",
+    response_model=Page[UserListItem],
+    summary="Kullanıcıları listele (public)",
+    description=(
+        "Sıralama: reputation/joined/username. Arama: search (username, ILIKE)."
+        " Yalnızca public alanlar döner; email bilgisi paylaşılmaz."
+    ),
+)
+async def list_users(
+    session: SessionDep,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(30, ge=1, le=100),
+    sort: str = Query("reputation"),
+    desc: bool = Query(True),
+    search: str | None = Query(None, min_length=1, max_length=64),
+) -> Page[UserListItem]:
+    if sort not in VALID_USER_SORT:
+        raise HTTPException(status_code=400, detail=f"sort must be one of {VALID_USER_SORT}")
+
+    search_norm = search.strip() if search else None
+    if search_norm == "":
+        search_norm = None
+
+    # Aramayken cache'i atla — rastgele input'la cache şişirilmesin.
+    cache_key = USERLIST_KEY.format(
+        sort=sort, desc=int(desc), page=page, page_size=page_size,
+    )
+    if search_norm is None:
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return Response(content=cached, media_type="application/json")  # type: ignore[return-value]
+
+    q_count_sq = (
+        select(func.count())
+        .select_from(Question)
+        .where(Question.user_id == User.id)
+        .scalar_subquery()
+        .label("question_count")
+    )
+    a_count_sq = (
+        select(func.count())
+        .select_from(Answer)
+        .where(Answer.user_id == User.id)
+        .scalar_subquery()
+        .label("answer_count")
+    )
+
+    stmt = select(
+        User.id,
+        User.username,
+        User.reputation,
+        User.joined_at,
+        User.bio,
+        q_count_sq,
+        a_count_sq,
+    )
+    if search_norm:
+        pattern = f"%{_escape_like(search_norm)}%"
+        stmt = stmt.where(User.username.ilike(pattern, escape="\\"))
+
+    sort_cols = {
+        "reputation": User.reputation,
+        "joined": User.joined_at,
+        "username": User.username,
+    }
+    col = sort_cols[sort]
+    stmt = stmt.order_by(col.desc() if desc else col.asc(), User.id.asc())
+
+    total = (await session.execute(
+        select(func.count()).select_from(stmt.subquery())
+    )).scalar_one()
+    rows = (await session.execute(
+        stmt.offset((page - 1) * page_size).limit(page_size)
+    )).all()
+
+    items = [
+        UserListItem(
+            id=r.id,
+            username=r.username,
+            reputation=r.reputation,
+            joined_at=r.joined_at,
+            bio=r.bio,
+            question_count=r.question_count,
+            answer_count=r.answer_count,
+        )
+        for r in rows
+    ]
+    page_obj = Page[UserListItem](items=items, total=total, page=page, page_size=page_size)
+    if search_norm is None:
+        await cache_set(cache_key, page_obj.model_dump_json())
+    return page_obj
 
 
 @router.get(

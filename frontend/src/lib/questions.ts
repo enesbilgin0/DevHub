@@ -48,6 +48,7 @@ export interface ListParams {
   sort?: QuestionSort
   tag?: string
   author?: string
+  q?: string
   pageSize?: number
 }
 
@@ -57,6 +58,7 @@ export async function listQuestions({
   sort = 'created',
   tag,
   author,
+  q,
   pageSize = 20,
 }: ListParams): Promise<PageResult<QuestionSummary>> {
   const qs = new URLSearchParams({
@@ -67,6 +69,7 @@ export async function listQuestions({
   })
   if (tag) qs.set('tag', tag)
   if (author) qs.set('author', author)
+  if (q) qs.set('q', q)
   const res = await apiFetch(`/questions?${qs.toString()}`)
   if (!res.ok) throw new Error('Sorular yüklenemedi')
   return res.json()

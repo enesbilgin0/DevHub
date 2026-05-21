@@ -1,8 +1,15 @@
 import Link from 'next/link'
 
 import { logout } from '@/app/actions/auth'
+import { SearchBox } from '@/components/search-box'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { getCurrentUser } from '@/lib/auth'
+
+const NAV = [
+  { href: '/questions', label: 'Sorular' },
+  { href: '/tags', label: 'Etiketler' },
+  { href: '/users', label: 'Kullanıcılar' },
+]
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser()
@@ -10,19 +17,23 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen">
       <header className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-950">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-3">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-3 px-6 py-3 sm:flex-nowrap">
           <nav className="flex items-center gap-5 text-sm">
             <Link href="/" className="text-base font-bold">
               DevHub
             </Link>
-            <Link
-              href="/questions"
-              className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-            >
-              Sorular
-            </Link>
+            {NAV.map((n) => (
+              <Link
+                key={n.href}
+                href={n.href}
+                className="text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
+              >
+                {n.label}
+              </Link>
+            ))}
           </nav>
-          <div className="flex items-center gap-3 text-sm">
+          <SearchBox className="order-3 w-full sm:order-2 sm:max-w-sm sm:flex-1" />
+          <div className="order-2 flex items-center gap-3 text-sm sm:order-3">
             <ThemeToggle />
             {user ? (
               <>

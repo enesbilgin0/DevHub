@@ -54,6 +54,20 @@ class UserSummary(BaseModel):
     reputation: int
 
 
+class UserListItem(BaseModel):
+    """Public kullanıcı listesi için. Email gibi PII içermez."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    reputation: int
+    joined_at: datetime
+    bio: str | None = None
+    question_count: int = 0
+    answer_count: int = 0
+
+
 # --- Tags -----------------------------------------------------------------
 
 class TagCreate(BaseModel):

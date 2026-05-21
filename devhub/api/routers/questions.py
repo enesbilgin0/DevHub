@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
-from sqlalchemy import delete, func, insert, select
+from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ...models import (
@@ -32,6 +32,12 @@ router = APIRouter(prefix="/questions", tags=["questions"])
 VALID_SORT = {"created", "votes", "views", "answers"}
 
 QLIST_KEY = "qlist:{sort}:{desc}:{tag}:{author}:{page}:{page_size}"
+
+
+def _escape_like(value: str) -> str:
+    """LIKE/ILIKE wildcard'larını ('%', '_', '\\') kaçışla; kullanıcı girdisini
+    desen sayma. Kullanım: `column.ilike(f"%{_escape_like(q)}%", escape="\\\\")`."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 QDETAIL_KEY = "question:{qid}"
 QLIST_PATTERN = "qlist:*"
 ALIST_PATTERN_FOR = "alist:{qid}:*"
@@ -129,7 +135,10 @@ async def _summary_row(session: SessionDep, qid: int) -> dict:
     "",
     response_model=Page[QuestionSummary],
     summary="Soruları listele",
-    description="Sıralama: created/votes/views/answers. Filtre: tag, author. Sonuçlar 60 sn cache'lenir.",
+    description=(
+        "Sıralama: created/votes/views/answers. Filtre: tag, author, q (serbest metin)."
+        " Sonuçlar 60 sn cache'lenir; q kullanılırsa cache atlanır."
+    ),
 )
 async def list_questions(
     session: SessionDep,
@@ -139,17 +148,25 @@ async def list_questions(
     desc: bool = Query(True),
     tag: str | None = Query(None),
     author: str | None = Query(None),
+    q: str | None = Query(None, min_length=2, max_length=80, description="Başlık/içerik araması"),
 ):
     if sort not in VALID_SORT:
         raise HTTPException(status_code=400, detail=f"sort must be one of {VALID_SORT}")
 
+    q_norm = q.strip() if q else None
+    if q_norm is not None and len(q_norm) < 2:
+        q_norm = None
+
+    # Serbest metinli sorgu: input alanı sınırsız olduğundan cache'i atla
+    # (saldırgan rastgele girdilerle cache şişiremez).
     cache_key = QLIST_KEY.format(
         sort=sort, desc=int(desc), tag=tag or "-", author=author or "-",
         page=page, page_size=page_size,
     )
-    cached = await cache_get(cache_key)
-    if cached is not None:
-        return Response(content=cached, media_type="application/json")
+    if q_norm is None:
+        cached = await cache_get(cache_key)
+        if cached is not None:
+            return Response(content=cached, media_type="application/json")
 
     vote_score = func.coalesce(
         select(func.sum(Vote.value))
@@ -198,6 +215,14 @@ async def list_questions(
         )
     if author:
         stmt = stmt.where(User.username == author)
+    if q_norm:
+        pattern = f"%{_escape_like(q_norm)}%"
+        stmt = stmt.where(
+            or_(
+                Question.title.ilike(pattern, escape="\\"),
+                Question.body.ilike(pattern, escape="\\"),
+            )
+        )
 
     sort_cols = {
         "created": Question.created_at,
@@ -242,7 +267,8 @@ async def list_questions(
         for r in rows
     ]
     page_obj = Page[QuestionSummary](items=items, total=total, page=page, page_size=page_size)
-    await cache_set(cache_key, page_obj.model_dump_json())
+    if q_norm is None:
+        await cache_set(cache_key, page_obj.model_dump_json())
     return page_obj
 
 
