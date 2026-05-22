@@ -104,6 +104,7 @@ class QuestionSummary(BaseModel):
     author: UserSummary
     tags: list[str]
     created_at: datetime
+    updated_at: datetime | None = None
     view_count: int
     vote_score: int
     answer_count: int
@@ -130,8 +131,24 @@ class AnswerOut(BaseModel):
     author: UserSummary
     body: str
     created_at: datetime
+    updated_at: datetime | None = None
     is_accepted: bool
     vote_score: int
+
+
+# --- Comments -------------------------------------------------------------
+
+class CommentCreate(BaseModel):
+    body: str = Field(min_length=5, max_length=600)
+
+
+class CommentOut(BaseModel):
+    id: int
+    target_type: str
+    target_id: int
+    author: UserSummary
+    body: str
+    created_at: datetime
 
 
 # --- Votes ----------------------------------------------------------------

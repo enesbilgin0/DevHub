@@ -62,6 +62,53 @@ export async function createQuestion(
   redirect(`/questions/${created.id}`)
 }
 
+export async function updateQuestion(
+  qid: number,
+  _prev: FormState | undefined,
+  formData: FormData,
+): Promise<FormState> {
+  const parsed = QuestionSchema.safeParse({
+    title: formData.get('title'),
+    body: formData.get('body'),
+    tags: parseTags(formData.get('tags')),
+  })
+  if (!parsed.success) return { fieldErrors: flatten(parsed.error) }
+
+  const res = await authedFetch(`/questions/${qid}`, {
+    method: 'PATCH',
+    body: JSON.stringify(parsed.data),
+  })
+  if (res.status === 401) return { error: 'Giriş yapmalısın.' }
+  if (res.status === 403) return { error: 'Bu soruyu düzenleyemezsin.' }
+  if (res.status === 404) return { error: 'Soru bulunamadı.' }
+  if (!res.ok) return { error: 'Soru güncellenemedi.' }
+
+  revalidatePath(`/questions/${qid}`)
+  revalidatePath('/questions')
+  redirect(`/questions/${qid}`)
+}
+
+export async function updateAnswer(
+  aid: number,
+  qid: number,
+  _prev: FormState | undefined,
+  formData: FormData,
+): Promise<FormState> {
+  const body = String(formData.get('body') ?? '').trim()
+  if (body.length < 10 || body.length > 20000) {
+    return { fieldErrors: { body: ['Cevap 10–20000 karakter olmalı.'] } }
+  }
+  const res = await authedFetch(`/answers/${aid}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ body }),
+  })
+  if (res.status === 401) return { error: 'Giriş yapmalısın.' }
+  if (res.status === 403) return { error: 'Bu cevabı düzenleyemezsin.' }
+  if (!res.ok) return { error: 'Cevap güncellenemedi.' }
+  revalidatePath(`/questions/${qid}`)
+  return {}
+}
+
 export async function createAnswer(
   qid: number,
   _prev: FormState | undefined,

@@ -1,6 +1,8 @@
 """Soru ve oy router'ı."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import delete, func, insert, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -85,6 +87,7 @@ async def _summary_row(session: SessionDep, qid: int) -> dict:
             Question.title,
             Question.body,
             Question.created_at,
+            Question.updated_at,
             Question.view_count,
             User.id.label("author_id"),
             User.username.label("author_username"),
@@ -124,6 +127,7 @@ async def _summary_row(session: SessionDep, qid: int) -> dict:
         "author": UserSummary(id=row.author_id, username=row.author_username, reputation=row.author_reputation),
         "tags": tag_names,
         "created_at": row.created_at,
+        "updated_at": row.updated_at,
         "view_count": row.view_count,
         "vote_score": int(row.vote_score),
         "answer_count": row.answer_count,
@@ -194,6 +198,7 @@ async def list_questions(
             Question.id,
             Question.title,
             Question.created_at,
+            Question.updated_at,
             Question.view_count,
             User.id.label("author_id"),
             User.username.label("author_username"),
@@ -259,6 +264,7 @@ async def list_questions(
             author=UserSummary(id=r.author_id, username=r.author_username, reputation=r.author_reputation),
             tags=tags_by_qid[r.id],
             created_at=r.created_at,
+            updated_at=r.updated_at,
             view_count=r.view_count,
             vote_score=int(r.vote_score),
             answer_count=r.answer_count,
@@ -327,10 +333,13 @@ async def update_question(
     q = await _get_question_or_404(session, qid)
     if q.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the question owner")
+    changed = False
     if payload.title is not None:
         q.title = payload.title
+        changed = True
     if payload.body is not None:
         q.body = payload.body
+        changed = True
     if payload.tags is not None:
         await session.execute(delete(QuestionTag).where(QuestionTag.question_id == qid))
         tag_ids = await _resolve_tags(session, payload.tags)
@@ -338,6 +347,9 @@ async def update_question(
             await session.execute(
                 insert(QuestionTag), [{"question_id": qid, "tag_id": t} for t in tag_ids]
             )
+        changed = True
+    if changed:
+        q.updated_at = datetime.now(UTC)
     await session.flush()
     detail = QuestionDetail(**(await _summary_row(session, qid)))
     await _invalidate_question(qid)

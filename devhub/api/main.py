@@ -7,7 +7,7 @@ from fastapi import FastAPI
 
 from ..db import dispose_engine
 from .cache import close_redis
-from .routers import answers, auth, questions, tags, users, ws
+from .routers import answers, auth, comments, questions, tags, users, ws
 
 OPENAPI_TAGS = [
     {
@@ -31,6 +31,13 @@ OPENAPI_TAGS = [
     {
         "name": "answers",
         "description": "Cevaplar için CRUD + kabul + oylama. Sadece soru sahibi cevap kabul edebilir.",
+    },
+    {
+        "name": "comments",
+        "description": (
+            "Soru veya cevap altına düz metin yorumlar. Düzenleme yok; sadece sahip silebilir."
+            " Body 5–600 karakter."
+        ),
     },
     {
         "name": "realtime",
@@ -75,6 +82,7 @@ app.include_router(auth.router)
 app.include_router(tags.router)
 app.include_router(questions.router)
 app.include_router(answers.router)
+app.include_router(comments.router)
 app.include_router(users.router)
 app.include_router(ws.router)
 

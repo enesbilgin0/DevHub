@@ -57,6 +57,8 @@ class Question(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Sadece düzenlemeden sonra dolar; None ise hiç düzenlenmemiş demek.
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     view_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (
@@ -79,11 +81,41 @@ class Answer(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         Index("idx_answers_question", "question_id"),
         Index("idx_answers_user", "user_id"),
+    )
+
+
+class Comment(Base):
+    """Soru veya cevap altına düz metin yorum.
+
+    target_type ('question' veya 'answer') + target_id ile polimorfik bağ.
+    Düzenleme yok; sadece sahip silebilir (bkz. router).
+    """
+
+    __tablename__ = "comments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "target_type IN ('question', 'answer')", name="ck_comments_target_type"
+        ),
+        Index("idx_comments_target", "target_type", "target_id", "created_at"),
+        Index("idx_comments_user", "user_id"),
     )
 
 

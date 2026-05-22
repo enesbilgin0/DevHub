@@ -14,6 +14,7 @@ export interface QuestionSummary {
   author: UserSummary
   tags: string[]
   created_at: string
+  updated_at: string | null
   view_count: number
   vote_score: number
   answer_count: number
@@ -30,6 +31,7 @@ export interface AnswerOut {
   author: UserSummary
   body: string
   created_at: string
+  updated_at: string | null
   is_accepted: boolean
   vote_score: number
 }

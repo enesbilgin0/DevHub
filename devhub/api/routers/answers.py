@@ -1,6 +1,8 @@
 """Cevap router'ı — listele, oluştur, güncelle, sil, kabul et, oy ver."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, Query, Response, status
 from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -38,6 +40,7 @@ def _answer_row_to_out(row) -> AnswerOut:
         author=UserSummary(id=row.author_id, username=row.author_username, reputation=row.author_reputation),
         body=row.body,
         created_at=row.created_at,
+        updated_at=row.updated_at,
         is_accepted=row.is_accepted,
         vote_score=int(row.vote_score),
     )
@@ -56,6 +59,7 @@ async def _select_answer(session: SessionDep, aid: int) -> AnswerOut:
             Answer.question_id,
             Answer.body,
             Answer.created_at,
+            Answer.updated_at,
             Answer.is_accepted,
             User.id.label("author_id"),
             User.username.label("author_username"),
@@ -98,6 +102,7 @@ async def list_answers(
             Answer.question_id,
             Answer.body,
             Answer.created_at,
+            Answer.updated_at,
             Answer.is_accepted,
             User.id.label("author_id"),
             User.username.label("author_username"),
@@ -164,6 +169,7 @@ async def update_answer(
     if a.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not the answer owner")
     a.body = payload.body
+    a.updated_at = datetime.now(UTC)
     await session.flush()
     out = await _select_answer(session, aid)
     await _invalidate_question(a.question_id)

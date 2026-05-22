@@ -6,13 +6,17 @@ import {
   createAnswer,
   deleteAnswer,
   deleteQuestion,
+  updateAnswer,
   voteAnswer,
   voteQuestion,
 } from '@/app/actions/qa'
+import { AnswerEdit } from '@/components/answer-edit'
 import { AnswerForm } from '@/components/answer-form'
+import { Comments } from '@/components/comments'
 import { Markdown } from '@/components/markdown'
 import { VoteControl } from '@/components/vote-control'
 import { getCurrentUser } from '@/lib/auth'
+import { listComments } from '@/lib/comments'
 import { timeAgo } from '@/lib/format'
 import { getQuestion, listAnswers } from '@/lib/questions'
 
@@ -31,8 +35,15 @@ export default async function QuestionDetailPage({
   const [question, user] = await Promise.all([getQuestion(qid), getCurrentUser()])
   if (!question) notFound()
 
-  const answers = await listAnswers(qid)
+  const [answers, qComments] = await Promise.all([
+    listAnswers(qid),
+    listComments('question', qid),
+  ])
+  const answerComments = await Promise.all(
+    answers.map((a) => listComments('answer', a.id)),
+  )
   const isOwner = !!user && user.id === question.author.id
+  const currentUserId = user?.id ?? null
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8">
@@ -46,7 +57,14 @@ export default async function QuestionDetailPage({
       <div className="mt-3 border-b border-neutral-200 pb-4 dark:border-neutral-800">
         <h1 className="text-2xl font-semibold">{question.title}</h1>
         <p className={`mt-1 ${metaText}`}>
-          {timeAgo(question.created_at)} · {question.view_count} görüntüleme
+          {timeAgo(question.created_at)}
+          {question.updated_at && (
+            <>
+              {' '}· <span title={new Date(question.updated_at).toLocaleString('tr-TR')}>
+                {timeAgo(question.updated_at)} düzenlendi
+              </span>
+            </>
+          )}{' '}· {question.view_count} görüntüleme
         </p>
       </div>
 
@@ -80,16 +98,32 @@ export default async function QuestionDetailPage({
               · {question.author.reputation} itibar
             </p>
             {isOwner && (
-              <form action={deleteQuestion.bind(null, question.id)}>
-                <button
-                  type="submit"
-                  className="text-xs text-red-600 hover:underline dark:text-red-400"
+              <div className="flex gap-3">
+                <Link
+                  href={`/questions/${question.id}/edit`}
+                  className="text-xs text-blue-700 hover:underline dark:text-blue-400"
                 >
-                  Soruyu sil
-                </button>
-              </form>
+                  Düzenle
+                </Link>
+                <form action={deleteQuestion.bind(null, question.id)}>
+                  <button
+                    type="submit"
+                    className="text-xs text-red-600 hover:underline dark:text-red-400"
+                  >
+                    Soruyu sil
+                  </button>
+                </form>
+              </div>
             )}
           </div>
+
+          <Comments
+            target="question"
+            targetId={question.id}
+            qid={question.id}
+            comments={qComments}
+            currentUserId={currentUserId}
+          />
         </div>
       </div>
 
@@ -98,11 +132,13 @@ export default async function QuestionDetailPage({
       </h2>
 
       <div>
-        {answers.map((a) => {
+        {answers.map((a, idx) => {
           const acceptAction = async () => {
             'use server'
             await acceptAnswer(a.id, question.id)
           }
+          const editAction = updateAnswer.bind(null, a.id, question.id)
+          const isAnswerOwner = !!user && user.id === a.author.id
           return (
             <div
               key={a.id}
@@ -134,6 +170,13 @@ export default async function QuestionDetailPage({
                       {a.author.username}
                     </Link>{' '}
                     · {timeAgo(a.created_at)}
+                    {a.updated_at && (
+                      <>
+                        {' '}· <span title={new Date(a.updated_at).toLocaleString('tr-TR')}>
+                          {timeAgo(a.updated_at)} düzenlendi
+                        </span>
+                      </>
+                    )}
                   </p>
                   <div className="flex gap-3">
                     {isOwner && !a.is_accepted && (
@@ -146,7 +189,10 @@ export default async function QuestionDetailPage({
                         </button>
                       </form>
                     )}
-                    {!!user && user.id === a.author.id && (
+                    {isAnswerOwner && (
+                      <AnswerEdit defaultValue={a.body} action={editAction} />
+                    )}
+                    {isAnswerOwner && (
                       <form action={deleteAnswer.bind(null, a.id, question.id)}>
                         <button
                           type="submit"
@@ -158,6 +204,14 @@ export default async function QuestionDetailPage({
                     )}
                   </div>
                 </div>
+
+                <Comments
+                  target="answer"
+                  targetId={a.id}
+                  qid={question.id}
+                  comments={answerComments[idx]}
+                  currentUserId={currentUserId}
+                />
               </div>
             </div>
           )
