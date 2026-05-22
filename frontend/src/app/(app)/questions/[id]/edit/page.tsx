@@ -15,7 +15,7 @@ export default async function EditQuestionPage({
   if (!Number.isInteger(qid) || qid < 1) notFound()
 
   const user = await getCurrentUser()
-  if (!user) redirect(`/login?next=/questions/${qid}/edit`)
+  if (!user) redirect('/login')
 
   const question = await getQuestion(qid)
   if (!question) notFound()

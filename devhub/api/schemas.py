@@ -85,12 +85,17 @@ class TagOut(BaseModel):
 # --- Questions ------------------------------------------------------------
 
 class QuestionCreate(BaseModel):
+    # Strip baş/son boşluk; "      " gibi tamamen boşluk gönderim min_length'i geçemesin.
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     title: str = Field(min_length=10, max_length=300)
     body: str = Field(min_length=20, max_length=20000)
     tags: list[str] = Field(default_factory=list, max_length=5)
 
 
 class QuestionUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     title: str | None = Field(default=None, min_length=10, max_length=300)
     body: str | None = Field(default=None, min_length=20, max_length=20000)
     tags: list[str] | None = Field(default=None, max_length=5)
@@ -118,10 +123,14 @@ class QuestionDetail(QuestionSummary):
 # --- Answers --------------------------------------------------------------
 
 class AnswerCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     body: str = Field(min_length=10, max_length=20000)
 
 
 class AnswerUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     body: str = Field(min_length=10, max_length=20000)
 
 
@@ -139,6 +148,8 @@ class AnswerOut(BaseModel):
 # --- Comments -------------------------------------------------------------
 
 class CommentCreate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
     body: str = Field(min_length=5, max_length=600)
 
 
