@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# DevHub — Frontend
 
-## Getting Started
+Next.js (App Router) frontend for the DevHub Q&A platform.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 + React 19
+- TypeScript, Tailwind CSS 4
+- Server Actions for mutations, server-side proxy to FastAPI backend
+
+## Getting started
 
 ```bash
+npm install
+cp .env.example .env.local   # set API_URL to your backend
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app runs on http://localhost:3000 and proxies API calls to the FastAPI backend (default `http://127.0.0.1:8000`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Environment
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable  | Description                         | Default                 |
+| --------- | ----------------------------------- | ----------------------- |
+| `API_URL` | Backend base URL (server-side only) | `http://127.0.0.1:8000` |
 
-## Learn More
+`API_URL` is never exposed to the browser — all backend traffic goes through the Next.js server.
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `npm run dev` — start dev server
+- `npm run build` — production build
+- `npm run start` — start production server
+- `npm run lint` — ESLint
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Layout
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+src/
+├── app/              # routes (App Router), server actions, layouts
+├── components/       # shared UI (forms, markdown, vote, comments, …)
+├── lib/              # api clients, auth/session, validation helpers
+└── proxy.ts          # server-side fetch helper to the backend
+```
